@@ -1,0 +1,43 @@
+# Виртуальное окружение
+venv/
+env/
+ENV/
+
+# База данных
+*.db
+*.sqlite
+*.sqlite3
+
+# Конфигурация с секретами
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Логи
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Директории для локальной разработки
+handlers/
+utils/
+
+# Скрипты установки (не нужны на сервере)
+install.sh
+install.bat
+start.sh
+start.bat
