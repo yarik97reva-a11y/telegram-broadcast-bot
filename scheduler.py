@@ -3,14 +3,18 @@ from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime, timedelta
 from database import Database
+import pytz
 import logging
 
 logger = logging.getLogger(__name__)
 
+# Московское время (UTC+3)
+MOSCOW_TZ = pytz.timezone('Europe/Moscow')
+
 
 class BroadcastScheduler:
     def __init__(self, bot, db: Database):
-        self.scheduler = AsyncIOScheduler()
+        self.scheduler = AsyncIOScheduler(timezone=MOSCOW_TZ)
         self.bot = bot
         self.db = db
 

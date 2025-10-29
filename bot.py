@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta
+import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application,
@@ -33,6 +34,9 @@ logger = logging.getLogger(__name__)
 # Глобальные объекты
 db = Database(config.DATABASE_PATH)
 scheduler = None
+
+# Московское время (UTC+3)
+MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 
 
 def admin_only(func):
@@ -249,7 +253,7 @@ async def broadcast_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     time_option = query.data.replace("time_", "")
-    now = datetime.now()
+    now = datetime.now(MOSCOW_TZ)
 
     if time_option == "5min":
         scheduled_time = now + timedelta(minutes=5)
@@ -289,8 +293,10 @@ async def broadcast_time_custom(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         time_str = update.message.text
         scheduled_time = datetime.strptime(time_str, "%d.%m.%Y %H:%M")
+        # Добавляем московский timezone
+        scheduled_time = MOSCOW_TZ.localize(scheduled_time)
 
-        if scheduled_time < datetime.now():
+        if scheduled_time < datetime.now(MOSCOW_TZ):
             await update.message.reply_text(
                 "❌ Указанное время уже прошло. Введите будущее время."
             )
