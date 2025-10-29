@@ -120,19 +120,27 @@ class BroadcastScheduler:
 
                     self.db.add_broadcast_stat(broadcast_id, chat_id)
                 else:
-                    # Без фильтров - отправляем в чат как обычно
-                    try:
-                        await self.bot.send_message(
-                            chat_id=chat_id,
-                            text=message_text,
-                            parse_mode="HTML"
-                        )
-                        self.db.add_broadcast_stat(broadcast_id, chat_id)
-                        success_count += 1
-                        logger.info(f"Sent broadcast {broadcast_id} to chat {chat_id}")
-                    except Exception as e:
-                        fail_count += 1
-                        logger.error(f"Failed to send broadcast {broadcast_id} to chat {chat_id}: {e}")
+                    # Без фильтров - отправляем всем участникам чата в личные сообщения
+                    users = self.db.get_users_in_chat(chat_id)
+
+                    if not users:
+                        logger.warning(f"No registered users in chat {chat_id}")
+                        continue
+
+                    for user in users:
+                        try:
+                            await self.bot.send_message(
+                                chat_id=user["user_id"],
+                                text=message_text,
+                                parse_mode="HTML"
+                            )
+                            success_count += 1
+                            logger.info(f"Sent broadcast {broadcast_id} to user {user['user_id']} in chat {chat_id}")
+                        except Exception as e:
+                            fail_count += 1
+                            logger.error(f"Failed to send to user {user['user_id']}: {e}")
+
+                    self.db.add_broadcast_stat(broadcast_id, chat_id)
 
             # Обновление статуса
             self.db.increment_broadcast_repeat(broadcast_id)
