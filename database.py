@@ -481,17 +481,19 @@ class Database:
 
         base_query = "FROM users" + (" WHERE chat_id = ?" if chat_id else "")
         params = [chat_id] if chat_id else []
+        # Определяем нужно ли использовать WHERE или AND
+        where_and = " AND" if chat_id else " WHERE"
 
         cursor.execute(f"SELECT COUNT(*) {base_query}", params)
         total = cursor.fetchone()[0]
 
-        cursor.execute(f"SELECT COUNT(*) {base_query} AND gender = 'male'", params)
+        cursor.execute(f"SELECT COUNT(*) {base_query}{where_and} gender = 'male'", params)
         male = cursor.fetchone()[0]
 
-        cursor.execute(f"SELECT COUNT(*) {base_query} AND gender = 'female'", params)
+        cursor.execute(f"SELECT COUNT(*) {base_query}{where_and} gender = 'female'", params)
         female = cursor.fetchone()[0]
 
-        cursor.execute(f"SELECT AVG(age) {base_query} AND age IS NOT NULL", params)
+        cursor.execute(f"SELECT AVG(age) {base_query}{where_and} age IS NOT NULL", params)
         avg_age = cursor.fetchone()[0]
 
         conn.close()
