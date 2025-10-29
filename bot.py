@@ -48,15 +48,34 @@ def admin_only(func):
     return wrapper
 
 
+def owner_only(func):
+    """Декоратор для проверки прав главного администратора"""
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        if not db.is_owner(user_id):
+            if update.callback_query:
+                await update.callback_query.answer(
+                    "❌ Только главный администратор может выполнять это действие!",
+                    show_alert=True
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ Только главный администратор может выполнять это действие!"
+                )
+            return ConversationHandler.END
+        return await func(update, context)
+    return wrapper
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
     user_id = update.effective_user.id
     username = update.effective_user.username
 
-    # Добавляем первого админа
+    # Добавляем первого админа как owner (главный администратор)
     if user_id == config.FIRST_ADMIN_ID and not db.is_admin(user_id):
-        db.add_admin(user_id, username)
-        logger.info(f"Added first admin: {user_id}")
+        db.add_admin(user_id, username, role='owner')
+        logger.info(f"Added first admin (owner): {user_id}")
 
     if not db.is_admin(user_id):
         await update.message.reply_text(
@@ -69,15 +88,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отображение главного меню"""
+    user_id = update.effective_user.id
+    is_owner = db.is_owner(user_id)
+
     keyboard = [
         [InlineKeyboardButton("📤 Создать рассылку", callback_data="create_broadcast")],
         [InlineKeyboardButton("📋 Мои рассылки", callback_data="list_broadcasts")],
         [InlineKeyboardButton("👥 Управление чатами", callback_data="manage_chats")],
-        [InlineKeyboardButton("👨‍💼 Администраторы", callback_data="manage_admins")],
+    ]
+
+    # Кнопка "Администраторы" видна только главному администратору
+    if is_owner:
+        keyboard.append([InlineKeyboardButton("👨‍💼 Администраторы", callback_data="manage_admins")])
+
+    keyboard.extend([
         [InlineKeyboardButton("📊 Статистика", callback_data="statistics")],
         [InlineKeyboardButton("👤 Пользователи", callback_data="user_stats")],
         [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")]
-    ]
+    ])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     text = (
@@ -783,8 +811,9 @@ async def remove_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # === УПРАВЛЕНИЕ АДМИНИСТРАТОРАМИ ===
+@owner_only
 async def manage_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Управление администраторами"""
+    """Управление администраторами (только для главного администратора)"""
     query = update.callback_query
     await query.answer()
 
@@ -797,12 +826,16 @@ async def manage_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "Список администраторов:\n\n"
         for admin in admins:
             username_display = f"@{admin['username']}" if admin['username'] else "Нет username"
-            text += f"👤 ID: <code>{admin['user_id']}</code>\n"
+            role_emoji = "👑" if admin['role'] == 'owner' else "👤"
+            role_text = "Главный администратор" if admin['role'] == 'owner' else "Администратор"
+
+            text += f"{role_emoji} <b>{role_text}</b>\n"
+            text += f"   ID: <code>{admin['user_id']}</code>\n"
             text += f"   {username_display}\n"
             text += f"   Добавлен: {admin['added_at'][:10]}\n"
 
-            # Кнопка удаления (только если не первый админ)
-            if admin['user_id'] != config.FIRST_ADMIN_ID:
+            # Кнопка удаления (только если не owner)
+            if admin['role'] != 'owner':
                 keyboard.append([
                     InlineKeyboardButton(
                         f"🗑 Удалить {username_display}",
@@ -820,8 +853,9 @@ async def manage_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.edit_text(text, reply_markup=reply_markup, parse_mode="HTML")
 
 
+@owner_only
 async def add_admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начало добавления администратора"""
+    """Начало добавления администратора (только для главного администратора)"""
     query = update.callback_query
     await query.answer()
 
@@ -831,6 +865,8 @@ async def add_admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1. Попросите человека написать боту @userinfobot\n"
         "2. Он получит свой Telegram ID\n"
         "3. Отправьте мне этот ID\n\n"
+        "⚠️ <i>Новый администратор будет иметь ограниченные права.\n"
+        "Он сможет создавать рассылки, но не управлять администраторами.</i>\n\n"
         "Введите Telegram ID нового администратора:",
         parse_mode="HTML"
     )
@@ -874,14 +910,15 @@ async def add_admin_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+@owner_only
 async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Удаление администратора"""
+    """Удаление администратора (только для главного администратора)"""
     query = update.callback_query
     await query.answer()
 
     admin_id = int(query.data.replace("remove_admin_", ""))
 
-    # Защита от удаления первого админа
+    # Защита от удаления owner
     if admin_id == config.FIRST_ADMIN_ID:
         await query.answer("❌ Нельзя удалить главного администратора!", show_alert=True)
         return

@@ -22,9 +22,23 @@ class Database:
             CREATE TABLE IF NOT EXISTS admins (
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
+                role TEXT DEFAULT 'admin',
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Миграция: добавляем поле role если его нет
+        cursor.execute("PRAGMA table_info(admins)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'role' not in columns:
+            cursor.execute("ALTER TABLE admins ADD COLUMN role TEXT DEFAULT 'admin'")
+            conn.commit()
+
+        # Обновляем роль первого админа на 'owner' (из config)
+        from config import FIRST_ADMIN_ID
+        if FIRST_ADMIN_ID:
+            cursor.execute("UPDATE admins SET role = 'owner' WHERE user_id = ?", (FIRST_ADMIN_ID,))
+            conn.commit()
 
         # Таблица целевых чатов/каналов
         cursor.execute("""
@@ -139,12 +153,13 @@ class Database:
         conn.close()
 
     # === АДМИНИСТРАТОРЫ ===
-    def add_admin(self, user_id: int, username: str = None):
+    def add_admin(self, user_id: int, username: str = None, role: str = 'admin'):
+        """Добавить администратора. role: 'owner' (главный) или 'admin' (обычный)"""
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
-            cursor.execute("INSERT OR IGNORE INTO admins (user_id, username) VALUES (?, ?)",
-                          (user_id, username))
+            cursor.execute("INSERT OR IGNORE INTO admins (user_id, username, role) VALUES (?, ?, ?)",
+                          (user_id, username, role))
             conn.commit()
             return True
         except Exception as e:
@@ -164,11 +179,20 @@ class Database:
     def get_admins(self) -> List[Dict]:
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT user_id, username, added_at FROM admins")
-        admins = [{"user_id": row[0], "username": row[1], "added_at": row[2]}
+        cursor.execute("SELECT user_id, username, role, added_at FROM admins")
+        admins = [{"user_id": row[0], "username": row[1], "role": row[2], "added_at": row[3]}
                  for row in cursor.fetchall()]
         conn.close()
         return admins
+
+    def is_owner(self, user_id: int) -> bool:
+        """Проверить является ли пользователь главным администратором"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT role FROM admins WHERE user_id = ?", (user_id,))
+        result = cursor.fetchone()
+        conn.close()
+        return result is not None and result[0] == 'owner'
 
     def remove_admin(self, user_id: int):
         """Удалить администратора"""
