@@ -1,7 +1,15 @@
 import os
-from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# Пытаемся загрузить .env если он существует (для локальной разработки)
+# На сервере (Render, Railway) используются переменные окружения напрямую
+try:
+    from dotenv import load_dotenv
+    env_path = Path('.') / '.env'
+    if env_path.exists():
+        load_dotenv()
+except ImportError:
+    pass  # dotenv не установлен или .env не существует, используем системные переменные
 
 # Токен бота (получить у @BotFather)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
