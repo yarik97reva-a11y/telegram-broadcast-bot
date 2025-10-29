@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
  BROADCAST_TIME, BROADCAST_FREQUENCY, BROADCAST_REPEAT,
  BROADCAST_GENDER, BROADCAST_AGE_MIN, BROADCAST_AGE_MAX,
  ADD_CHAT_ID, ADD_CHAT_NAME,
- REGISTER_GENDER, REGISTER_AGE) = range(13)
+ REGISTER_GENDER, REGISTER_AGE,
+ ADD_ADMIN_ID) = range(14)
 
 # Глобальные объекты
 db = Database(config.DATABASE_PATH)
@@ -72,6 +73,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📤 Создать рассылку", callback_data="create_broadcast")],
         [InlineKeyboardButton("📋 Мои рассылки", callback_data="list_broadcasts")],
         [InlineKeyboardButton("👥 Управление чатами", callback_data="manage_chats")],
+        [InlineKeyboardButton("👨‍💼 Администраторы", callback_data="manage_admins")],
         [InlineKeyboardButton("📊 Статистика", callback_data="statistics")],
         [InlineKeyboardButton("👤 Пользователи", callback_data="user_stats")],
         [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")]
@@ -780,6 +782,121 @@ async def remove_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await manage_chats(update, context)
 
 
+# === УПРАВЛЕНИЕ АДМИНИСТРАТОРАМИ ===
+async def manage_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Управление администраторами"""
+    query = update.callback_query
+    await query.answer()
+
+    admins = db.get_admins()
+
+    keyboard = []
+    text = "👨‍💼 <b>Управление администраторами</b>\n\n"
+
+    if admins:
+        text += "Список администраторов:\n\n"
+        for admin in admins:
+            username_display = f"@{admin['username']}" if admin['username'] else "Нет username"
+            text += f"👤 ID: <code>{admin['user_id']}</code>\n"
+            text += f"   {username_display}\n"
+            text += f"   Добавлен: {admin['added_at'][:10]}\n"
+
+            # Кнопка удаления (только если не первый админ)
+            if admin['user_id'] != config.FIRST_ADMIN_ID:
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"🗑 Удалить {username_display}",
+                        callback_data=f"remove_admin_{admin['user_id']}"
+                    )
+                ])
+            text += "\n"
+    else:
+        text += "Нет администраторов.\n"
+
+    keyboard.append([InlineKeyboardButton("➕ Добавить администратора", callback_data="add_admin")])
+    keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.message.edit_text(text, reply_markup=reply_markup, parse_mode="HTML")
+
+
+async def add_admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Начало добавления администратора"""
+    query = update.callback_query
+    await query.answer()
+
+    await query.message.reply_text(
+        "➕ <b>Добавление нового администратора</b>\n\n"
+        "Чтобы добавить администратора:\n"
+        "1. Попросите человека написать боту @userinfobot\n"
+        "2. Он получит свой Telegram ID\n"
+        "3. Отправьте мне этот ID\n\n"
+        "Введите Telegram ID нового администратора:",
+        parse_mode="HTML"
+    )
+    return ADD_ADMIN_ID
+
+
+async def add_admin_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получение ID нового администратора"""
+    try:
+        admin_id = int(update.message.text.strip())
+
+        # Проверяем что такой админ еще не добавлен
+        if db.is_admin(admin_id):
+            await update.message.reply_text(
+                "❌ Этот пользователь уже является администратором!"
+            )
+            return ConversationHandler.END
+
+        # Добавляем администратора
+        if db.add_admin(admin_id):
+            await update.message.reply_text(
+                f"✅ Администратор успешно добавлен!\n"
+                f"ID: <code>{admin_id}</code>\n\n"
+                f"Теперь этот пользователь может управлять ботом.",
+                parse_mode="HTML"
+            )
+            logger.info(f"New admin added: {admin_id} by {update.effective_user.id}")
+        else:
+            await update.message.reply_text(
+                "❌ Не удалось добавить администратора. Попробуйте еще раз."
+            )
+
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Неверный формат ID.\n"
+            "ID должен быть числом (например: 123456789)\n\n"
+            "Попробуйте еще раз:"
+        )
+        return ADD_ADMIN_ID
+
+    return ConversationHandler.END
+
+
+async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Удаление администратора"""
+    query = update.callback_query
+    await query.answer()
+
+    admin_id = int(query.data.replace("remove_admin_", ""))
+
+    # Защита от удаления первого админа
+    if admin_id == config.FIRST_ADMIN_ID:
+        await query.answer("❌ Нельзя удалить главного администратора!", show_alert=True)
+        return
+
+    # Удаляем администратора
+    if db.remove_admin(admin_id):
+        await query.answer("✅ Администратор удален")
+        logger.info(f"Admin removed: {admin_id} by {update.effective_user.id}")
+    else:
+        await query.answer("❌ Ошибка при удалении", show_alert=True)
+
+    # Обновляем меню
+    await manage_admins(update, context)
+
+
 # === СТАТИСТИКА ===
 async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать общую статистику"""
@@ -1032,6 +1149,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await list_broadcasts(update, context)
     elif query.data == "manage_chats":
         await manage_chats(update, context)
+    elif query.data == "manage_admins":
+        await manage_admins(update, context)
+    elif query.data == "add_admin":
+        return await add_admin_start(update, context)
+    elif query.data.startswith("remove_admin_"):
+        await remove_admin(update, context)
     elif query.data == "statistics":
         await show_statistics(update, context)
     elif query.data == "user_stats":
@@ -1120,6 +1243,15 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)]
     )
 
+    # Добавление администратора (ConversationHandler)
+    add_admin_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(add_admin_start, pattern="^add_admin$")],
+        states={
+            ADD_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_admin_id)]
+        },
+        fallbacks=[CommandHandler("cancel", cancel)]
+    )
+
     # Команды
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", show_help))
@@ -1129,6 +1261,7 @@ def main():
     application.add_handler(broadcast_conv)
     application.add_handler(add_chat_conv)
     application.add_handler(register_conv)
+    application.add_handler(add_admin_conv)
 
     # Обработчик новых участников чата
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_chat_member))

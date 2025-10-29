@@ -170,6 +170,20 @@ class Database:
         conn.close()
         return admins
 
+    def remove_admin(self, user_id: int):
+        """Удалить администратора"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error removing admin: {e}")
+            return False
+        finally:
+            conn.close()
+
     # === ЦЕЛЕВЫЕ ЧАТЫ ===
     def add_target_chat(self, chat_id: str, chat_name: str, chat_type: str):
         conn = self.get_connection()
